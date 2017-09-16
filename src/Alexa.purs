@@ -11,7 +11,7 @@ import Prelude
 
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Console (CONSOLE, log)
-import Control.Monad.Eff.Uncurried (EffFn1, EffFn2, EffFn3, EffFn4, runEffFn1, runEffFn2, runEffFn3, runEffFn4)
+import Control.Monad.Eff.Uncurried (EffFn1, EffFn2, EffFn3, mkEffFn1, runEffFn1, runEffFn2, runEffFn3)
 import Data.Newtype (class Newtype, unwrap)
 
 type AlexaEffects eff = (alexa :: ALEXA, console :: CONSOLE | eff)
@@ -42,107 +42,13 @@ foreign import _init
 init :: ∀ eff. Event -> Context -> Eff (AlexaEffects eff) Alexa
 init = runEffFn2 _init
 
--- | Register an intent handler that speaks to the user.
-foreign import _registerSay
-  :: ∀ eff.
-     EffFn3 (AlexaEffects eff)
-       Alexa
-       String
-       String
-       Unit
-registerSay
-  :: ∀ eff
-   . Alexa
-  -> IntentLabel
-  -> Say
-  -> (Eff (AlexaEffects eff) Unit)
-registerSay alexa (IntentLabel label) (Say say) =
-  runEffFn3 _registerSay alexa label say
-
--- | Register an intent handler that speaks to the user and listens for a response.
-foreign import _registerSayAndListen
-  :: ∀ eff.
-     EffFn4 (AlexaEffects eff)
-       Alexa
-       String
-       String
-       String
-       Unit
-registerSayAndListen
-  :: ∀ eff
-   . Alexa
-  -> IntentLabel
-  -> Say
-  -> Listen
-  -> (Eff (AlexaEffects eff) Unit)
-registerSayAndListen alexa (IntentLabel label) (Say say) (Listen listen) =
-  runEffFn4 _registerSayAndListen alexa label say listen
-
--- | Execute the given Alexa handler.
-foreign import _execute :: ∀ eff. EffFn1 (AlexaEffects eff) Alexa Unit
-execute :: ∀ eff. Alexa -> (Eff (AlexaEffects eff) Unit)
-execute = runEffFn1 _execute
-
---------------------------------------------------------------------------------
--- This works
---------------------------------------------------------------------------------
-
-registerHelpIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
-registerHelpIntent alexa =
-  let label  = IntentLabel "AMAZON.HelpIntent"
-      say    = Say "Please refer to the readme for example invocations and try again."
-      listen = Listen "Please refer to the readme and try again."
-  in do
-    log "Registered help intent"
-    registerSayAndListen alexa label say listen
-
-registerCancelIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
-registerCancelIntent alexa =
-  let label = IntentLabel "AMAZON.CancelIntent"
-      say   = Say "Goodbye."
-  in do
-    log "Registered cancel intent"
-    registerSay alexa label say
-
-registerStopIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
-registerStopIntent alexa =
-  let label = IntentLabel "AMAZON.StopIntent"
-      say   = Say "Goodbye."
-  in do
-    log "Registered stop intent"
-    registerSay alexa label say
-
-registerSpeakIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
-registerSpeakIntent alexa =
-  let label = IntentLabel "SpeakIntent"
-      say   = Say "Hello"
-  in do
-    log "Registered speak intent"
-    registerSay alexa label say
-
-handler :: ∀ eff. Event -> Context -> Eff (AlexaEffects eff) Unit
-handler event ctx = do
-  alexa <- init event ctx
-
-  registerHelpIntent alexa
-  registerCancelIntent alexa
-  registerStopIntent alexa
-  -- registerSpeakIntent alexa
-  failRegisterSpeakIntent alexa
-
-  execute alexa
-
---------------------------------------------------------------------------------
--- This doesn't work
---------------------------------------------------------------------------------
-
 -- | Register an intent handler.
 foreign import _registerHandler
   :: ∀ eff.
      EffFn3 (AlexaEffects eff)
        Alexa
        String
-       (This -> Eff (AlexaEffects eff) Unit)
+       (EffFn1 (AlexaEffects eff) This Unit)
        Unit
 registerHandler
   :: ∀ eff
@@ -151,7 +57,7 @@ registerHandler
   -> (This -> Eff (AlexaEffects eff) Unit)
   -> (Eff (AlexaEffects eff) Unit)
 registerHandler alexa (IntentLabel label) fn =
-  runEffFn3 _registerHandler alexa label fn
+  runEffFn3 _registerHandler alexa label (mkEffFn1 fn)
 
 foreign import _speak
   :: ∀ eff.
@@ -162,11 +68,61 @@ foreign import _speak
 speak :: ∀ eff. Say -> This -> Eff (AlexaEffects eff) Unit
 speak = runEffFn2 _speak <<< unwrap
 
-failRegisterSpeakIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
-failRegisterSpeakIntent alexa =
+foreign import _listen
+  :: ∀ eff.
+     EffFn2 (AlexaEffects eff)
+       String
+       This
+       Unit
+listen :: ∀ eff. Listen -> This -> Eff (AlexaEffects eff) Unit
+listen = runEffFn2 _listen <<< unwrap
+
+-- | Execute the given Alexa handler.
+foreign import _execute :: ∀ eff. EffFn1 (AlexaEffects eff) Alexa Unit
+execute :: ∀ eff. Alexa -> (Eff (AlexaEffects eff) Unit)
+execute = runEffFn1 _execute
+
+registerHelpIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
+registerHelpIntent alexa =
+  let label = IntentLabel "AMAZON.HelpIntent"
+      fn = \this -> do
+        speak (Say "Please refer to the readme for example invocations and try again.") this
+        listen (Listen "Please try again.") this
+  in do
+    log "Registered help intent"
+    registerHandler alexa label fn
+
+registerCancelIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
+registerCancelIntent alexa =
+  let label = IntentLabel "AMAZON.CancelIntent"
+      fn    = speak $ Say "Goodbye."
+  in do
+    log "Registered cancel intent"
+    registerHandler alexa label fn
+
+registerStopIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
+registerStopIntent alexa =
+  let label = IntentLabel "AMAZON.StopIntent"
+      fn    = speak $ Say "Goodbye."
+  in do
+    log "Registered stop intent"
+    registerHandler alexa label fn
+
+registerSpeakIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Unit
+registerSpeakIntent alexa =
   let label = IntentLabel "SpeakIntent"
-      say   = Say "Hello"
-      fn    = speak say
+      fn    = speak $ Say "Hello."
   in do
     log "Registered speak intent"
     registerHandler alexa label fn
+
+handler :: ∀ eff. Event -> Context -> Eff (AlexaEffects eff) Unit
+handler event ctx = do
+  alexa <- init event ctx
+
+  registerHelpIntent alexa
+  registerCancelIntent alexa
+  registerStopIntent alexa
+  registerSpeakIntent alexa
+
+  execute alexa
