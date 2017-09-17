@@ -15,14 +15,17 @@ exports._registerHandler = function(alexa, label, fn) {
     this.emit(':responseReady');
   };
   alexa.registerHandlers(handler);
+  return alexa;
 };
 
 exports._speak = function(say, self) {
   self.response.speak(say);
+  return self;
 };
 
 exports._listen = function(listen, self) {
   self.response.listen(listen);
+  return self;
 };
 
 exports._execute = function(alexa) {
