@@ -8,6 +8,7 @@
     "test": "node ./test/test.js"
   },
   "dependencies": {
-    "alexa-sdk": "^1.0.14"
+    "alexa-sdk": "^1.0.14",
+    "xhr2": "^0.1.4"
   }
 }

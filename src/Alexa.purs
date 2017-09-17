@@ -9,11 +9,14 @@ module Alexa
 
 import Prelude
 
+import Control.Monad.Aff (runAff_)
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Uncurried (EffFn1, EffFn2, EffFn3, mkEffFn1, runEffFn1, runEffFn2, runEffFn3)
+import Data.Either (either)
 import Data.Newtype (class Newtype, unwrap)
+import Network.HTTP.Affjax (AJAX, get)
 
-type AlexaEffects eff = (alexa :: ALEXA)
+type AlexaEffects eff = (ajax :: AJAX, alexa :: ALEXA)
 
 -- | Type of effects performed by Alexa handlers, and associated types used
 -- | by the SDK.
@@ -124,10 +127,16 @@ registerStopIntent =
 
 registerSpeakIntent :: ∀ eff. Alexa -> Eff (AlexaEffects eff) Alexa
 registerSpeakIntent =
-  let label   = IntentLabel "SpeakIntent"
-      say     = Say "Hello."
-      handler = speak say >=> respond
+  let label = IntentLabel "SpeakIntent"
+      handler = getIpAddr <<< flip say
   in registerHandler label handler
+  where
+    say res =
+      let say' = Say $ either (const "Something went wrong!") id res
+      in speak say' >=> respond
+    getIpAddr cb = runAff_ cb $ do
+      res <- get "https://httpbin.org/ip"
+      pure $ res.response :: String
 
 handler :: ∀ eff. Event -> Context -> Eff (AlexaEffects eff) Unit
 handler event ctx = do
